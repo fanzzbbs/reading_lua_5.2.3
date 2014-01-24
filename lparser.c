@@ -98,6 +98,10 @@ static void checklimit (FuncState *fs, int v, int l, const char *what) {
 }
 
 
+/*
+ * 如果当前token是预期的token，则继续解析，读入下一个token，
+ * 否则返回0表示不是预期的token
+ */
 static int testnext (LexState *ls, int c) {
   if (ls->t.token == c) {
     luaX_next(ls);
@@ -107,22 +111,35 @@ static int testnext (LexState *ls, int c) {
 }
 
 
+/*
+ * 检查当前token的合法性，如果不是预期的token，则停止解析，
+ * 抛出错误提示
+ */
 static void check (LexState *ls, int c) {
   if (ls->t.token != c)
     error_expected(ls, c);
 }
 
 
+/*
+ * 如果当前token是预期的token，则继续解析，
+ * 否则抛出错误
+ */
 static void checknext (LexState *ls, int c) {
   check(ls, c);
   luaX_next(ls);
 }
 
 
+/*
+ * 检查条件c是否成立，不成立则抛出错误，停止解析
+ */
 #define check_condition(ls,c,msg)	{ if (!(c)) luaX_syntaxerror(ls, msg); }
 
 
-
+/*
+ * 如果不是预期的what，则抛出错误，停止解析
+ */
 static void check_match (LexState *ls, int what, int who, int where) {
   if (!testnext(ls, what)) {
     if (where == ls->linenumber)
@@ -136,6 +153,10 @@ static void check_match (LexState *ls, int what, int who, int where) {
 }
 
 
+/*
+ * 下一个词法单位应该是个TK_NAME，否则抛出错误，
+ * 如果没有错误，则继续解析，并返回name
+ */
 static TString *str_checkname (LexState *ls) {
   TString *ts;
   check(ls, TK_NAME);
@@ -145,6 +166,10 @@ static TString *str_checkname (LexState *ls) {
 }
 
 
+/*
+ * 初始化一个expdesc结构，通常用来表示一个完整的变量，
+ * 是一种最小的语法单位
+ */
 static void init_exp (expdesc *e, expkind k, int i) {
   e->f = e->t = NO_JUMP;
   e->k = k;
@@ -162,6 +187,10 @@ static void checkname (LexState *ls, expdesc *e) {
 }
 
 
+/*
+ * 在LexState->FuncState->Proto的locvars中增加一个局部变量的名字
+ * 还会影响到sizelocvars和nlocvars，返回局部变量分配到的寄存器编号
+ */
 static int registerlocalvar (LexState *ls, TString *varname) {
   FuncState *fs = ls->fs;
   Proto *f = fs->f;
@@ -175,6 +204,10 @@ static int registerlocalvar (LexState *ls, TString *varname) {
 }
 
 
+/*
+ * 新建一个局部变量，LexState->Dyndata结构应该是记录当前活动（可见）的
+ * 变量和Label信息，即记录变量的生存期，块内的局部变量是否被块外访问了
+ */
 static void new_localvar (LexState *ls, TString *name) {
   FuncState *fs = ls->fs;
   Dyndata *dyd = ls->dyd;
@@ -187,14 +220,28 @@ static void new_localvar (LexState *ls, TString *name) {
 }
 
 
+/*
+ * 仅被下方的宏使用
+ */
 static void new_localvarliteral_ (LexState *ls, const char *name, size_t sz) {
   new_localvar(ls, luaX_newstring(ls, name, sz));
 }
 
+/*
+ * 创建几个具有固定名称的局部变量
+ * self, (for index), (for limit), (for step),
+ * (for generator), (for state), (for control)
+ * 其中for语法中使用的局部变量名称带有非法字符，在程序中无法访问，
+ * （因为不是一个有效的标示符），挺巧妙的
+ */
 #define new_localvarliteral(ls,v) \
 	new_localvarliteral_(ls, "" v, (sizeof(v)/sizeof(char))-1)
 
 
+/*
+ * 获取一个局部变量
+ * 索引i为Dyndata结构中当前活动的var索引，被转换为全局局部变量索引
+ */
 static LocVar *getlocvar (FuncState *fs, int i) {
   int idx = fs->ls->dyd->actvar.arr[fs->firstlocal + i].idx;
   lua_assert(idx < fs->nlocvars);
@@ -202,6 +249,10 @@ static LocVar *getlocvar (FuncState *fs, int i) {
 }
 
 
+/*
+ * 激活n个最近创建的局部变量，即在Dyndata结构中设置var的startpc字段，
+ * 使变量变为可见，在这个函数之前要使用new_localvar等先创建这些变量
+ */
 static void adjustlocalvars (LexState *ls, int nvars) {
   FuncState *fs = ls->fs;
   fs->nactvar = cast_byte(fs->nactvar + nvars);
@@ -211,6 +262,10 @@ static void adjustlocalvars (LexState *ls, int nvars) {
 }
 
 
+/*
+ * 局部变量的生存周期结束，设置Dyndata结构中的endpc字段
+ * 在leaveblock中被调用
+ */
 static void removevars (FuncState *fs, int tolevel) {
   fs->ls->dyd->actvar.n -= (fs->nactvar - tolevel);
   while (fs->nactvar > tolevel)
@@ -218,6 +273,9 @@ static void removevars (FuncState *fs, int tolevel) {
 }
 
 
+/*
+ * 在upvalue中查找一个变量，返回该变量在upvalue中的索引
+ */
 static int searchupvalue (FuncState *fs, TString *name) {
   int i;
   Upvaldesc *up = fs->f->upvalues;
@@ -228,6 +286,9 @@ static int searchupvalue (FuncState *fs, TString *name) {
 }
 
 
+/*
+ * 在upvalue中创建一个变量，变量信息由expdesc结构指定
+ */
 static int newupvalue (FuncState *fs, TString *name, expdesc *v) {
   Proto *f = fs->f;
   int oldsize = f->sizeupvalues;
@@ -243,6 +304,9 @@ static int newupvalue (FuncState *fs, TString *name, expdesc *v) {
 }
 
 
+/*
+ * 在当前活动的局部变量列表中查找指定的变量，返回索引
+ */
 static int searchvar (FuncState *fs, TString *n) {
   int i;
   for (i = cast_int(fs->nactvar) - 1; i >= 0; i--) {
@@ -264,6 +328,11 @@ static void markupval (FuncState *fs, int level) {
 }
 
 
+/*
+ * 查找一个变量，返回变量所在的位置，并初始化对应的var结构
+ * VVOID - global, VLOCAL - local, VUPVAL - upvalue
+ * upvalue是这样一种情况，在上层函数的局部变量中找到了该变量
+ */
 /*
   Find variable with given name 'n'. If it is an upvalue, add this
   upvalue into all intermediate functions.
@@ -294,6 +363,9 @@ static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base) {
 }
 
 
+/*
+ * 在合适的位置（global, upvalue, local）创建一个由var指定的变量
+ */
 static void singlevar (LexState *ls, expdesc *var) {
   TString *varname = str_checkname(ls);
   FuncState *fs = ls->fs;
@@ -307,6 +379,10 @@ static void singlevar (LexState *ls, expdesc *var) {
 }
 
 
+/*
+ * 赋值表达式左右变量数量不等时，进行调整
+ * 在assignment, forlist, localstat中被引用
+ */
 static void adjust_assign (LexState *ls, int nvars, int nexps, expdesc *e) {
   FuncState *fs = ls->fs;
   int extra = nvars - nexps;
@@ -327,6 +403,10 @@ static void adjust_assign (LexState *ls, int nvars, int nexps, expdesc *e) {
 }
 
 
+/*
+ * 应该是界定一个chunk
+ * 在subexpr, statement中被引用
+ */
 static void enterlevel (LexState *ls) {
   lua_State *L = ls->L;
   ++L->nCcalls;
@@ -334,9 +414,18 @@ static void enterlevel (LexState *ls) {
 }
 
 
+/*
+ * 应该是界定一个chunk
+ * 在subexpr, statement中被引用
+ */
 #define leavelevel(ls)	((ls)->L->nCcalls--)
 
 
+/*
+ * goto语句有两种情况，goto backward，goto forward，若是forward，
+ * 则目标地址需要延迟到label实际定义时才能确定，不管怎么说，该函数
+ * 用于完成一条goto指令
+ */
 static void closegoto (LexState *ls, int g, Labeldesc *label) {
   int i;
   FuncState *fs = ls->fs;
@@ -358,6 +447,10 @@ static void closegoto (LexState *ls, int g, Labeldesc *label) {
 }
 
 
+/*
+ * 尝试完成一个goto语句，如果找到了相应的label，则closegoto，
+ * 否则需要延迟到label定义之后才能close
+ */
 /*
 ** try to close a goto with existing labels; this solves backward jumps
 */
@@ -381,6 +474,9 @@ static int findlabel (LexState *ls, int g) {
 }
 
 
+/*
+ * 创建一个新的label，添加到Labellist中
+ */
 static int newlabelentry (LexState *ls, Labellist *l, TString *name,
                           int line, int pc) {
   int n = l->n;
@@ -395,6 +491,9 @@ static int newlabelentry (LexState *ls, Labellist *l, TString *name,
 }
 
 
+/*
+ * 创建了一个新的label后，看看能不能完成一些延迟的goto语句
+ */
 /*
 ** check whether new label 'lb' matches any pending gotos in current
 ** block; solves forward jumps
@@ -411,6 +510,9 @@ static void findgotos (LexState *ls, Labeldesc *lb) {
 }
 
 
+/*
+ * 将当前block内不能解决的goto语句移到上层block中，延迟解决
+ */
 /*
 ** "export" pending gotos to outer level, to check them against
 ** outer labels; if the block being exited has upvalues, and
@@ -435,6 +537,12 @@ static void movegotosout (FuncState *fs, BlockCnt *bl) {
 }
 
 
+/*
+ * 进入一个新的块，需要创建一个新的作用域，用BlockCnt表示这个作用域，
+ * 统计块内部定义的局部变量，
+ * 在open_func, block, whilestat, repeatstat, forbody, forstat,
+ * test_then_block中被引用
+ */
 static void enterblock (FuncState *fs, BlockCnt *bl, lu_byte isloop) {
   bl->isloop = isloop;
   bl->nactvar = fs->nactvar;
@@ -448,6 +556,10 @@ static void enterblock (FuncState *fs, BlockCnt *bl, lu_byte isloop) {
 
 
 /*
+ * 在block的结束处创建一个break标签，用于解析break语句
+ * 在leaveblock中被引用
+ */
+/*
 ** create a label named "break" to resolve break statements
 */
 static void breaklabel (LexState *ls) {
@@ -456,6 +568,9 @@ static void breaklabel (LexState *ls) {
   findgotos(ls, &ls->dyd->label.arr[l]);
 }
 
+/*
+ * 在当前函数内找不到有效的goto目标，则抛出错误
+ */
 /*
 ** generates an error for an undefined 'goto'; choose appropriate
 ** message when label name is a reserved word (which can only be 'break')
@@ -469,6 +584,9 @@ static l_noret undefgoto (LexState *ls, Labeldesc *gt) {
 }
 
 
+/*
+ * 结束一个块，进行一些收尾处理
+ */
 static void leaveblock (FuncState *fs) {
   BlockCnt *bl = fs->bl;
   LexState *ls = fs->ls;
@@ -493,6 +611,10 @@ static void leaveblock (FuncState *fs) {
 
 
 /*
+ * 创建一个新的Proto，添加到当前的Proto中，即在函数内部定义局部函数
+ * 在body中调用，返回新创建的Proto指针
+ */
+/*
 ** adds a new prototype into list of prototypes
 */
 static Proto *addprototype (LexState *ls) {
@@ -512,6 +634,10 @@ static Proto *addprototype (LexState *ls) {
 
 
 /*
+ * 创建一条OP_CLOSURE指令，对应于函数定义操作function f() end
+ * 在body中被引用
+ */
+/*
 ** codes instruction to create new closure in parent function.
 ** The OP_CLOSURE instruction must use the last available register,
 ** so that, if it invokes the GC, the GC knows which registers
@@ -524,6 +650,11 @@ static void codeclosure (LexState *ls, expdesc *v) {
 }
 
 
+/*
+ * 遇到一个函数定义时，调用open_func初始化对应的FuncState和BlockCnt结构，
+ * 使用close_func结束函数定义，在这之间是函数体解析的代码，
+ * 在body和main_func中被引用
+ */
 static void open_func (LexState *ls, FuncState *fs, BlockCnt *bl) {
   lua_State *L = ls->L;
   Proto *f;
@@ -552,6 +683,9 @@ static void open_func (LexState *ls, FuncState *fs, BlockCnt *bl) {
 }
 
 
+/*
+ * 完成一个函数的定义，即完成Proto结构
+ */
 static void close_func (LexState *ls) {
   lua_State *L = ls->L;
   FuncState *fs = ls->fs;
@@ -586,6 +720,12 @@ static void close_func (LexState *ls) {
 
 
 /*
+ * 感觉函数名字不是很恰当？碰到以下的符号表示是一个block的结束，
+ * else, elseif, end, until, EOS, return交给调用者处理了，
+ * 需要做相应的处理，until有点不相同，其后跟随的表达式也属于这个块
+ * 在statlist, labelstat, test_then_block, retstat中被引用
+ */
+/*
 ** check whether current token is in the follow set of a block.
 ** 'until' closes syntactical blocks, but do not close scope,
 ** so it handled in separate.
@@ -601,6 +741,10 @@ static int block_follow (LexState *ls, int withuntil) {
 }
 
 
+/*
+ * 处理块内部的statement，直到碰到块结束标志，一次block的递归解析完成
+ * 在body, block, repeatstat, test_then_block, mainfunc中被引用
+ */
 static void statlist (LexState *ls) {
   /* statlist -> { stat [`;'] } */
   while (!block_follow(ls, 1)) {
@@ -613,6 +757,9 @@ static void statlist (LexState *ls) {
 }
 
 
+/*
+ * 解析fieldsel -> ['.' | ':'] NAME表达式，初始化对应的expdesc
+ */
 static void fieldsel (LexState *ls, expdesc *v) {
   /* fieldsel -> ['.' | ':'] NAME */
   FuncState *fs = ls->fs;
@@ -624,6 +771,9 @@ static void fieldsel (LexState *ls, expdesc *v) {
 }
 
 
+/*
+ * 解析index -> '[' expr ']'，初始化对应的expdesc
+ */
 static void yindex (LexState *ls, expdesc *v) {
   /* index -> '[' expr ']' */
   luaX_next(ls);  /* skip the '[' */
@@ -649,6 +799,9 @@ struct ConsControl {
 };
 
 
+/*
+ * 解析table构造式中的一条，并添加相应指令
+ */
 static void recfield (LexState *ls, struct ConsControl *cc) {
   /* recfield -> (NAME | `['exp1`]') = exp1 */
   FuncState *fs = ls->fs;
@@ -670,6 +823,10 @@ static void recfield (LexState *ls, struct ConsControl *cc) {
 }
 
 
+/*
+ * 完成一个ConsControl结构
+ * 在constructor中被引用
+ */
 static void closelistfield (FuncState *fs, struct ConsControl *cc) {
   if (cc->v.k == VVOID) return;  /* there is no list item */
   luaK_exp2nextreg(fs, &cc->v);
@@ -696,6 +853,9 @@ static void lastlistfield (FuncState *fs, struct ConsControl *cc) {
 }
 
 
+/*
+ * 解析Name ‘=’ exp规则
+ */
 static void listfield (LexState *ls, struct ConsControl *cc) {
   /* listfield -> exp */
   expr(ls, &cc->v);
@@ -705,6 +865,9 @@ static void listfield (LexState *ls, struct ConsControl *cc) {
 }
 
 
+/*
+ * 解析field ::= ‘[’ exp ‘]’ ‘=’ exp | Name ‘=’ exp | exp规则
+ */
 static void field (LexState *ls, struct ConsControl *cc) {
   /* field -> listfield | recfield */
   switch(ls->t.token) {
@@ -727,6 +890,10 @@ static void field (LexState *ls, struct ConsControl *cc) {
 }
 
 
+/*
+ * 解析table构造式规则，
+ * 在funcargs, simpleexp中被引用
+ */
 static void constructor (LexState *ls, expdesc *t) {
   /* constructor -> '{' [ field { sep field } [sep] ] '}'
      sep -> ',' | ';' */
@@ -755,7 +922,10 @@ static void constructor (LexState *ls, expdesc *t) {
 /* }====================================================================== */
 
 
-
+/*
+ * 解析函数`定义'参数列表
+ * 在body中被引用
+ */
 static void parlist (LexState *ls) {
   /* parlist -> [ param { `,' param } ] */
   FuncState *fs = ls->fs;
@@ -785,6 +955,10 @@ static void parlist (LexState *ls) {
 }
 
 
+/*
+ * 解析函数定义体，即`(' parlist `)' block END部分
+ * 在simpleexp, localfunc, funcstat中被引用
+ */
 static void body (LexState *ls, expdesc *e, int ismethod, int line) {
   /* body ->  `(' parlist `)' block END */
   FuncState new_fs;
@@ -807,6 +981,10 @@ static void body (LexState *ls, expdesc *e, int ismethod, int line) {
 }
 
 
+/*
+ * 解析表达式列表，即expr { `,' expr }
+ * 在funcargs, assignment, forlist, localstat, retstat中被引用
+ */
 static int explist (LexState *ls, expdesc *v) {
   /* explist -> expr { `,' expr } */
   int n = 1;  /* at least one expression */
@@ -820,6 +998,10 @@ static int explist (LexState *ls, expdesc *v) {
 }
 
 
+/*
+ * 解析函数`调用'参数列表，即`(' [ explist ] `)'
+ * 在suffixdexp中被引用
+ */
 static void funcargs (LexState *ls, expdesc *f, int line) {
   FuncState *fs = ls->fs;
   expdesc args;
@@ -874,6 +1056,10 @@ static void funcargs (LexState *ls, expdesc *f, int line) {
 */
 
 
+/*
+ * 解析表达式的NAME | '(' expr ')'部分
+ * 在suffixedexp中被引用
+ */
 static void primaryexp (LexState *ls, expdesc *v) {
   /* primaryexp -> NAME | '(' expr ')' */
   switch (ls->t.token) {
@@ -896,6 +1082,10 @@ static void primaryexp (LexState *ls, expdesc *v) {
 }
 
 
+/*
+ * 解析语句中一个最基本的单位，例如t, t['a'], t.a, t.a(), t:a(x, y)
+ * 在simpleexp, assignment, exprstat中被引用
+ */
 static void suffixedexp (LexState *ls, expdesc *v) {
   /* suffixedexp ->
        primaryexp { '.' NAME | '[' exp ']' | ':' NAME funcargs | funcargs } */
@@ -934,6 +1124,10 @@ static void suffixedexp (LexState *ls, expdesc *v) {
 }
 
 
+/*
+ * 解析不含有操作符的简单表达式
+ * 在subexpr中被引用
+ */
 static void simpleexp (LexState *ls, expdesc *v) {
   /* simpleexp -> NUMBER | STRING | NIL | TRUE | FALSE | ... |
                   constructor | FUNCTION body | suffixedexp */
@@ -984,6 +1178,10 @@ static void simpleexp (LexState *ls, expdesc *v) {
 }
 
 
+/*
+ * 判断操作符是不是一元操作符，包括not, -, #
+ * 在subexpr中被引用
+ */
 static UnOpr getunopr (int op) {
   switch (op) {
     case TK_NOT: return OPR_NOT;
@@ -994,6 +1192,10 @@ static UnOpr getunopr (int op) {
 }
 
 
+/*
+ * 判断操作符是不是二元操作符
+ * 在subexpr中被引用
+ */
 static BinOpr getbinopr (int op) {
   switch (op) {
     case '+': return OPR_ADD;
@@ -1031,6 +1233,10 @@ static const struct {
 
 
 /*
+ * 子表达式的计算，递归调用自身，需要判断运算符优先级，limit是一个优先级，
+ * 以limit = 0调用，即可得到一个完整的表达式
+ */
+/*
 ** subexpr -> (simpleexp | unop subexpr) { binop subexpr }
 ** where `binop' is any binary operator with a priority higher than `limit'
 */
@@ -1064,6 +1270,11 @@ static BinOpr subexpr (LexState *ls, expdesc *v, int limit) {
 }
 
 
+/*
+ * 获取一个完整的表达式，表达式可以与操作符等构成一个语句，
+ * 在yindex, recfield, listfield, explist, primaryexp, cond, exp1,
+ * test_then_block中被引用
+ */
 static void expr (LexState *ls, expdesc *v) {
   subexpr(ls, v, 0);
 }
@@ -1079,6 +1290,10 @@ static void expr (LexState *ls, expdesc *v) {
 */
 
 
+/*
+ * 解析一个block中所有的statement，
+ * 在whilestat, forbody, ifstat, statement中被引用
+ */
 static void block (LexState *ls) {
   /* block -> statlist */
   FuncState *fs = ls->fs;
@@ -1099,6 +1314,10 @@ struct LHS_assign {
 };
 
 
+/*
+ * 多重赋值时进行的一些处理，没仔细看
+ * 在assignment中被引用
+ */
 /*
 ** check whether, in an assignment to an upvalue/local variable, the
 ** upvalue/local variable is begin used in a previous assignment to a
@@ -1133,6 +1352,10 @@ static void check_conflict (LexState *ls, struct LHS_assign *lh, expdesc *v) {
 }
 
 
+/*
+ * 赋值语句的处理
+ * 在assignment, exprstat中被引用
+ */
 static void assignment (LexState *ls, struct LHS_assign *lh, int nvars) {
   expdesc e;
   check_condition(ls, vkisvar(lh->v.k), "syntax error");
@@ -1166,6 +1389,10 @@ static void assignment (LexState *ls, struct LHS_assign *lh, int nvars) {
 }
 
 
+/*
+ * 计算while和repeat的条件
+ * 在whilestat, repeatstat中被引用
+ */
 static int cond (LexState *ls) {
   /* cond -> exp */
   expdesc v;
@@ -1176,6 +1403,10 @@ static int cond (LexState *ls) {
 }
 
 
+/*
+ * goto语句的处理
+ * 在test_then_block, statement中被引用
+ */
 static void gotostat (LexState *ls, int pc) {
   int line = ls->linenumber;
   TString *label;
@@ -1191,6 +1422,10 @@ static void gotostat (LexState *ls, int pc) {
 }
 
 
+/*
+ * 检查一个label是不是已经被定义过了，
+ * 在labelstat中被引用
+ */
 /* check for repeated labels on the same block */
 static void checkrepeated (FuncState *fs, Labellist *ll, TString *label) {
   int i;
@@ -1205,6 +1440,10 @@ static void checkrepeated (FuncState *fs, Labellist *ll, TString *label) {
 }
 
 
+/*
+ * 跳过没有实际操作的语句，包括;和::LABEL::
+ * 在labelstat, test_then_block中被引用
+ */
 /* skip no-op statements */
 static void skipnoopstat (LexState *ls) {
   while (ls->t.token == ';' || ls->t.token == TK_DBCOLON)
@@ -1212,6 +1451,10 @@ static void skipnoopstat (LexState *ls) {
 }
 
 
+/*
+ * 处理label表达式，即'::' NAME '::'
+ * 在statement中被引用
+ */
 static void labelstat (LexState *ls, TString *label, int line) {
   /* label -> '::' NAME '::' */
   FuncState *fs = ls->fs;
@@ -1230,6 +1473,10 @@ static void labelstat (LexState *ls, TString *label, int line) {
 }
 
 
+/*
+ * 处理while表达式，
+ * 在statement中被引用
+ */
 static void whilestat (LexState *ls, int line) {
   /* whilestat -> WHILE cond DO block END */
   FuncState *fs = ls->fs;
@@ -1249,6 +1496,10 @@ static void whilestat (LexState *ls, int line) {
 }
 
 
+/*
+ * 处理repeat语句，
+ * 在statement中被引用
+ */
 static void repeatstat (LexState *ls, int line) {
   /* repeatstat -> REPEAT block UNTIL cond */
   int condexit;
@@ -1269,6 +1520,10 @@ static void repeatstat (LexState *ls, int line) {
 }
 
 
+/*
+ * 计算数字for的3个exp应引用哪个寄存器中的变量
+ * 在fornum中被引用
+ */
 static int exp1 (LexState *ls) {
   expdesc e;
   int reg;
@@ -1280,6 +1535,10 @@ static int exp1 (LexState *ls) {
 }
 
 
+/*
+ * 处理for循环的body部分，
+ * 在fornum, forlist中被引用
+ */
 static void forbody (LexState *ls, int base, int line, int nvars, int isnum) {
   /* forbody -> DO block */
   BlockCnt bl;
@@ -1306,6 +1565,10 @@ static void forbody (LexState *ls, int base, int line, int nvars, int isnum) {
 }
 
 
+/*
+ * 处理数字for循环，
+ * 在forstat中被引用
+ */
 static void fornum (LexState *ls, TString *varname, int line) {
   /* fornum -> NAME = exp1,exp1[,exp1] forbody */
   FuncState *fs = ls->fs;
@@ -1328,6 +1591,10 @@ static void fornum (LexState *ls, TString *varname, int line) {
 }
 
 
+/*
+ * 处理迭代for循环，
+ * 在forstat中被引用
+ */
 static void forlist (LexState *ls, TString *indexname) {
   /* forlist -> NAME {,NAME} IN explist forbody */
   FuncState *fs = ls->fs;
@@ -1353,6 +1620,10 @@ static void forlist (LexState *ls, TString *indexname) {
 }
 
 
+/*
+ * 处理for循环语句
+ * 在statement中被引用
+ */
 static void forstat (LexState *ls, int line) {
   /* forstat -> FOR (fornum | forlist) END */
   FuncState *fs = ls->fs;
@@ -1371,6 +1642,10 @@ static void forstat (LexState *ls, int line) {
 }
 
 
+/*
+ * 处理if语句中的一个if块，
+ * 在ifstat中被引用
+ */
 static void test_then_block (LexState *ls, int *escapelist) {
   /* test_then_block -> [IF | ELSEIF] cond THEN block */
   BlockCnt bl;
@@ -1406,6 +1681,10 @@ static void test_then_block (LexState *ls, int *escapelist) {
 }
 
 
+/*
+ * 处理整个的if语句，
+ * 在statment中被引用
+ */
 static void ifstat (LexState *ls, int line) {
   /* ifstat -> IF cond THEN block {ELSEIF cond THEN block} [ELSE block] END */
   FuncState *fs = ls->fs;
@@ -1420,6 +1699,10 @@ static void ifstat (LexState *ls, int line) {
 }
 
 
+/*
+ * 处理局部函数定义语句，
+ * 在statement中被引用
+ */
 static void localfunc (LexState *ls) {
   expdesc b;
   FuncState *fs = ls->fs;
@@ -1431,6 +1714,10 @@ static void localfunc (LexState *ls) {
 }
 
 
+/*
+ * 处理局部变量定义，
+ * 在statement中被引用
+ */
 static void localstat (LexState *ls) {
   /* stat -> LOCAL NAME {`,' NAME} [`=' explist] */
   int nvars = 0;
@@ -1451,6 +1738,10 @@ static void localstat (LexState *ls) {
 }
 
 
+/*
+ * 解析函数定义时使用的名字
+ * 在funcstat中被引用
+ */
 static int funcname (LexState *ls, expdesc *v) {
   /* funcname -> NAME {fieldsel} [`:' NAME] */
   int ismethod = 0;
@@ -1465,6 +1756,10 @@ static int funcname (LexState *ls, expdesc *v) {
 }
 
 
+/*
+ * 解析全局函数定义语句，
+ * 在statement中被引用
+ */
 static void funcstat (LexState *ls, int line) {
   /* funcstat -> FUNCTION funcname body */
   int ismethod;
@@ -1477,6 +1772,10 @@ static void funcstat (LexState *ls, int line) {
 }
 
 
+/*
+ * 表达式语句，最简单的语句，包括赋值和函数调用，a = 1, f(1)
+ * 在statement中被引用
+ */
 static void exprstat (LexState *ls) {
   /* stat -> func | assignment */
   FuncState *fs = ls->fs;
@@ -1493,6 +1792,10 @@ static void exprstat (LexState *ls) {
 }
 
 
+/*
+ * 解析return语句，
+ * 在statement中被定义
+ */
 static void retstat (LexState *ls) {
   /* stat -> RETURN [explist] [';'] */
   FuncState *fs = ls->fs;
@@ -1526,6 +1829,10 @@ static void retstat (LexState *ls) {
 }
 
 
+/*
+ * 解析一条完整的语句，
+ * 在statlist, skipnoopstat中被引用
+ */
 static void statement (LexState *ls) {
   int line = ls->linenumber;  /* may be needed for error messages */
   enterlevel(ls);
@@ -1598,6 +1905,10 @@ static void statement (LexState *ls) {
 
 
 /*
+ * 解析主函数，在loadfile(file)时，把整个文件内容当做function main(...) end的body
+ * 在luaY_parser中被引用
+ */
+/*
 ** compiles the main function, which is a regular vararg function with an
 ** upvalue named LUA_ENV
 */
@@ -1615,6 +1926,10 @@ static void mainfunc (LexState *ls, FuncState *fs) {
 }
 
 
+/*
+ * 解析ZIO *z中指定的代码，返回一个Closure，
+ * 在ldo.c中的f_parser中被引用
+ */
 Closure *luaY_parser (lua_State *L, ZIO *z, Mbuffer *buff,
                       Dyndata *dyd, const char *name, int firstchar) {
   LexState lexstate;
