@@ -24,11 +24,15 @@
 #include "lzio.h"
 
 
-
+/*
+ * 取输入流的下一个字符到LexState结构的current字段中
+ */
 #define next(ls) (ls->current = zgetc(ls->z))
 
 
-
+/*
+ * 判断当前字符是否是换行字符（'\n'或'\r\n'）
+ */
 #define currIsNewline(ls)	(ls->current == '\n' || ls->current == '\r')
 
 
@@ -43,12 +47,18 @@ static const char *const luaX_tokens [] = {
 };
 
 
+/*
+ * 当前字符是预期的字符，保存到Mbuffer结构中，并取下一个字符
+ */
 #define save_and_next(ls) (save(ls, ls->current), next(ls))
 
 
 static l_noret lexerror (LexState *ls, const char *msg, int token);
 
 
+/*
+ * 在LexState结构的buff中追加一个字符
+ */
 static void save (LexState *ls, int c) {
   Mbuffer *b = ls->buff;
   if (luaZ_bufflen(b) + 1 > luaZ_sizebuffer(b)) {
@@ -62,6 +72,11 @@ static void save (LexState *ls, int c) {
 }
 
 
+/*
+ * lex词法分析器的初始化，
+ * 主要是在一个lua_State中创建语言保留字字符串，并设置FIXEDBIT位，
+ * 防止保留字字符串被垃圾回收，只在lua_newstate->f_luaopen->中调用一次
+ */
 void luaX_init (lua_State *L) {
   int i;
   for (i=0; i<NUM_RESERVED; i++) {
@@ -72,6 +87,9 @@ void luaX_init (lua_State *L) {
 }
 
 
+/*
+ * 把Token结构中的token字段转换成一种方便阅读的形式，用于辅助打印错误信息
+ */
 const char *luaX_token2str (LexState *ls, int token) {
   if (token < FIRST_RESERVED) {  /* single-byte symbols? */
     lua_assert(token == cast(unsigned char, token));
@@ -88,6 +106,9 @@ const char *luaX_token2str (LexState *ls, int token) {
 }
 
 
+/*
+ * 根据token的种类把Token结构中的token字段转换成一种方便阅读的形式，用于辅助打印错误信息
+ */
 static const char *txtToken (LexState *ls, int token) {
   switch (token) {
     case TK_NAME:
@@ -101,6 +122,9 @@ static const char *txtToken (LexState *ls, int token) {
 }
 
 
+/*
+ * 打印词法分析错误，抛出异常，终止编译过程
+ */
 static l_noret lexerror (LexState *ls, const char *msg, int token) {
   char buff[LUA_IDSIZE];
   luaO_chunkid(buff, getstr(ls->source), LUA_IDSIZE);
@@ -111,11 +135,19 @@ static l_noret lexerror (LexState *ls, const char *msg, int token) {
 }
 
 
+/*
+ * 当前输入不是有效代码，使用该api报告错误
+ */
 l_noret luaX_syntaxerror (LexState *ls, const char *msg) {
   lexerror(ls, msg, ls->t.token);
 }
 
 
+/*
+ * 创建一个暂时不会被回收的TString对象，
+ * 缓存词法分析时遇到的字符串，加速词法分析的速度，当代码块编译完毕后，
+ * 这些字符串才进行垃圾收集
+ */
 /*
 ** creates a new string and anchors it in function's table so that
 ** it will not be collected until the end of the function's compilation
@@ -142,6 +174,9 @@ TString *luaX_newstring (LexState *ls, const char *str, size_t l) {
 
 
 /*
+ * 当在输入流中碰到了\r或\n字符，增加LexState中的行计数
+ */
+/*
 ** increment line number and skips newline sequence (any of
 ** \n, \r, \n\r, or \r\n)
 */
@@ -156,6 +191,12 @@ static void inclinenumber (LexState *ls) {
 }
 
 
+/*
+ * 初始化一个LexState结构，对应一次词法分析的过程，
+ * 一个LexState结构对应一个function，注意，并不是指function关键字定义的函数，
+ * 而是一段有效的代码，例如解释器中输入的一行代码，loadfile一个lua文件，
+ * 只在luaY_parser中被引用
+ */
 void luaX_setinput (lua_State *L, LexState *ls, ZIO *z, TString *source,
                     int firstchar) {
   ls->decpoint = '.';
@@ -181,7 +222,9 @@ void luaX_setinput (lua_State *L, LexState *ls, ZIO *z, TString *source,
 */
 
 
-
+/*
+ * 检查输入流的下一个字符是不是预期的字符集中的一个字符，如果是，返回真
+ */
 static int check_next (LexState *ls, const char *set) {
   if (ls->current == '\0' || !strchr(set, ls->current))
     return 0;
@@ -190,6 +233,9 @@ static int check_next (LexState *ls, const char *set) {
 }
 
 
+/*
+ * 把LexState中的Mbuffer buff字段中的目标符号from替换为to，通常用于locale相关的小数点处理
+ */
 /*
 ** change all characters 'from' in buffer to 'to'
 */
@@ -206,8 +252,16 @@ static void buffreplace (LexState *ls, char from, char to) {
 #endif
 
 
+/*
+ * 把Mbuffer中的数据转换为一个数字
+ */
 #define buff2d(b,e)	luaO_str2d(luaZ_buffer(b), luaZ_bufflen(b) - 1, e)
 
+
+/*
+ * 读入一个数字时，若发生格式错误，则尝试将Mbuffer中的小数点替换为当前locale使用
+ * 的小数点，再次尝试转换，若还是存在错误，则确实不能转换为一个数字，抛出错误
+ */
 /*
 ** in case of format error, try to change decimal point separator to
 ** the one defined in the current locale and check again
@@ -224,6 +278,9 @@ static void trydecpoint (LexState *ls, SemInfo *seminfo) {
 }
 
 
+/*
+ * 当在输入流中碰到了一个数字0-9，则调用该函数尝试获取一个有效数字
+ */
 /* LUA_NUMBER */
 /*
 ** this function is quite liberal in what it accepts, as 'luaO_str2d'
@@ -251,6 +308,9 @@ static void read_numeral (LexState *ls, SemInfo *seminfo) {
 
 
 /*
+ * 跳过长字符串的分隔符，并返回=字符的数量，用于寻找匹配的下一个分隔符
+ */
+/*
 ** skip a sequence '[=*[' or ']=*]' and return its number of '='s or
 ** -1 if sequence is malformed
 */
@@ -267,6 +327,9 @@ static int skip_sep (LexState *ls) {
 }
 
 
+/*
+ * 当碰到注释或字符串常量形式的长字符串标志时，尝试读入一个长字符串
+ */
 static void read_long_string (LexState *ls, SemInfo *seminfo, int sep) {
   save_and_next(ls);  /* skip 2nd `[' */
   if (currIsNewline(ls))  /* string starts with a newline? */
@@ -302,6 +365,9 @@ static void read_long_string (LexState *ls, SemInfo *seminfo, int sep) {
 }
 
 
+/*
+ * 反馈一个转义字符错误
+ */
 static void escerror (LexState *ls, int *c, int n, const char *msg) {
   int i;
   luaZ_resetbuffer(ls->buff);  /* prepare error message */
@@ -312,6 +378,9 @@ static void escerror (LexState *ls, int *c, int n, const char *msg) {
 }
 
 
+/*
+ * 碰到\x转义序列，读入一个十六进制数，返回对应的char值
+ */
 static int readhexaesc (LexState *ls) {
   int c[3], i;  /* keep input for error message */
   int r = 0;  /* result accumulator */
@@ -326,6 +395,9 @@ static int readhexaesc (LexState *ls) {
 }
 
 
+/*
+ * 碰到\ddd转义序列，读入一个十进制数字，返回对应的char值
+ */
 static int readdecesc (LexState *ls) {
   int c[3], i;
   int r = 0;  /* result accumulator */
@@ -340,6 +412,9 @@ static int readdecesc (LexState *ls) {
 }
 
 
+/*
+ * 当遇到'"'或'\''时，读入一个字符串，del参数表示用那种分隔符表示的字符串
+ */
 static void read_string (LexState *ls, int del, SemInfo *seminfo) {
   save_and_next(ls);  /* keep delimiter (for error messages) */
   while (ls->current != del) {
@@ -398,6 +473,10 @@ static void read_string (LexState *ls, int del, SemInfo *seminfo) {
 }
 
 
+/*
+ * 词法分析的核心函数，根据LexState中的current字段判断下一个词法单位的类型，
+ * 并读入下一个词法单位，保存到指定的SemInfo结构中
+ */
 static int llex (LexState *ls, SemInfo *seminfo) {
   luaZ_resetbuffer(ls->buff);
   for (;;) {
@@ -511,6 +590,10 @@ static int llex (LexState *ls, SemInfo *seminfo) {
 }
 
 
+/*
+ * 取下一个最小词法单位，例如一个标示符，一个操作符，
+ * 存放在LexState结构中的Token t字段中，外部访问这个结构获取下一个有效的词法单位
+ */
 void luaX_next (LexState *ls) {
   ls->lastline = ls->linenumber;
   if (ls->lookahead.token != TK_EOS) {  /* is there a look-ahead token? */
@@ -522,6 +605,10 @@ void luaX_next (LexState *ls) {
 }
 
 
+/*
+ * 预取一个词法单位
+ * 只用于判断下一个token是不是'='，区分当前token是表达式还是将用于赋值
+ */
 int luaX_lookahead (LexState *ls) {
   lua_assert(ls->lookahead.token == TK_EOS);
   ls->lookahead.token = llex(ls, &ls->lookahead.seminfo);
